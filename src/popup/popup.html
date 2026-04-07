@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Quip — AI Comment Settings</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu',
+          'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+        background: #f8fafc;
+        width: 400px;
+        max-height: 700px;
+        overflow-y: auto;
+      }
+
+      .popup-container {
+        padding: 20px;
+      }
+
+      /* Header */
+      .header {
+        margin-bottom: 24px;
+        text-align: center;
+      }
+
+      .header h1 {
+        font-size: 24px;
+        font-weight: 700;
+        color: #6b5751;
+        margin-bottom: 4px;
+      }
+
+      .header p {
+        font-size: 12px;
+        color: #94a3b8;
+      }
+
+      /* Form Sections */
+      .form-section {
+        margin-bottom: 24px;
+        padding-bottom: 20px;
+        border-bottom: 1px solid #e2e8f0;
+      }
+
+      .form-section:last-child {
+        border-bottom: none;
+      }
+
+      .form-section h2 {
+        font-size: 13px;
+        font-weight: 600;
+        color: #0f172a;
+        margin-bottom: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      /* Form Elements */
+      .form-group {
+        margin-bottom: 16px;
+      }
+
+      label {
+        display: block;
+        font-size: 13px;
+        font-weight: 500;
+        color: #334155;
+        margin-bottom: 6px;
+      }
+
+      input[type='text'],
+      input[type='password'],
+      select {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #e7dfd8;
+        border-radius: 6px;
+        font-size: 13px;
+        background: #fff;
+        color: #0f172a;
+        transition: all 0.2s;
+      }
+
+      input[type='text']:focus,
+      input[type='password']:focus,
+      select:focus {
+        outline: none;
+        border-color: #fbbf24;
+        box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.1);
+      }
+
+      /* Checkboxes */
+      .checkbox-group {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .checkbox-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      input[type='checkbox'] {
+        width: 18px;
+        height: 18px;
+        accent-color: #6b5751;
+        cursor: pointer;
+      }
+
+      .checkbox-item label {
+        margin-bottom: 0;
+        cursor: pointer;
+        font-weight: 500;
+      }
+
+      /* Radio Buttons */
+      .radio-group {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .radio-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      input[type='radio'] {
+        width: 18px;
+        height: 18px;
+        accent-color: #6b5751;
+        cursor: pointer;
+      }
+
+      .radio-item label {
+        margin-bottom: 0;
+        cursor: pointer;
+        font-weight: 500;
+      }
+
+      /* Buttons */
+      .button-group {
+        display: flex;
+        gap: 12px;
+      }
+
+      .toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 12px;
+        border: 1px solid #e7dfd8;
+        border-radius: 6px;
+        background: #fff;
+        margin-bottom: 10px;
+      }
+
+      .toggle-row label {
+        margin-bottom: 0;
+      }
+
+      .range-help {
+        display: flex;
+        justify-content: space-between;
+        font-size: 11px;
+        color: #64748b;
+        margin-top: 6px;
+      }
+
+      button {
+        flex: 1;
+        padding: 10px 16px;
+        border: none;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      .btn-primary {
+        background: #6b5751;
+        color: #fff;
+      }
+
+      .btn-primary:hover {
+        background: #5a4843;
+      }
+
+      .btn-secondary {
+        background: #e7dfd8;
+        color: #6b5751;
+      }
+
+      .btn-secondary:hover {
+        background: #d9cfca;
+      }
+
+      /* Status Indicator */
+      .status-indicator {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px;
+        background: #f0fdf4;
+        border: 1px solid #d1fae5;
+        border-radius: 6px;
+        font-size: 12px;
+        color: #065f46;
+        margin-top: 12px;
+      }
+
+      .status-indicator.error {
+        background: #fef2f2;
+        border-color: #fecaca;
+        color: #991b1b;
+      }
+
+      .status-indicator.warning {
+        background: #fffbf0;
+        border-color: #fed7aa;
+        color: #b45309;
+      }
+
+      /* Loading */
+      .loading {
+        opacity: 0.6;
+        pointer-events: none;
+      }
+
+      .spinner {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border: 2px solid rgba(0, 0, 0, 0.1);
+        border-radius: 50%;
+        border-top-color: #6b5751;
+        animation: spin 0.6s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="popup-container">
+      <!-- Header -->
+      <div class="header">
+        <h1>✨ Quip</h1>
+        <p>AI Comment Assistant</p>
+      </div>
+
+      <!-- Main Form -->
+      <form id="quipForm">
+        <!-- Your Profile Section -->
+        <div class="form-section">
+          <h2>Your Profile</h2>
+
+          <div class="form-group">
+            <label for="role">Role</label>
+            <select id="role" name="role" required>
+              <option value="Product Manager">Product Manager</option>
+              <option value="Founder">Founder</option>
+              <option value="Job Seeker">Job Seeker</option>
+              <option value="Marketer">Marketer</option>
+              <option value="Engineer">Engineer</option>
+              <option value="Designer">Designer</option>
+              <option value="Investor">Investor</option>
+              <option value="Student">Student</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="apiKey">OpenAI API Key</label>
+            <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+              <input
+                type="password"
+                id="apiKey"
+                name="apiKey"
+                placeholder="sk-..."
+                required
+                style="flex: 1;"
+              />
+            </div>
+            <button type="button" id="testBtn" class="btn-secondary" style="width: 100%;">
+              Test Connection
+            </button>
+            <div id="testStatus" style="margin-top: 8px;"></div>
+          </div>
+        </div>
+
+        <!-- Default Parameters Section -->
+        <div class="form-section">
+          <h2>Default Parameters</h2>
+
+          <div class="form-group">
+            <label>Tone (Multi-Select)</label>
+            <div class="checkbox-group">
+              <div class="checkbox-item">
+                <input type="checkbox" id="tone-professional" name="tone-professional" value="professional" />
+                <label for="tone-professional">Professional</label>
+              </div>
+              <div class="checkbox-item">
+                <input type="checkbox" id="tone-friendly" name="tone-friendly" value="friendly" />
+                <label for="tone-friendly">Friendly</label>
+              </div>
+              <div class="checkbox-item">
+                <input type="checkbox" id="tone-casual" name="tone-casual" value="casual" />
+                <label for="tone-casual">Casual</label>
+              </div>
+              <div class="checkbox-item">
+                <input type="checkbox" id="tone-witty" name="tone-witty" value="witty" />
+                <label for="tone-witty">Witty</label>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Length</label>
+            <div class="radio-group">
+              <div class="radio-item">
+                <input type="radio" id="length-crisp" name="length" value="crisp" />
+                <label for="length-crisp">Crisp (1-2 sentences)</label>
+              </div>
+              <div class="radio-item">
+                <input type="radio" id="length-medium" name="length" value="medium" checked />
+                <label for="length-medium">Medium (3-4 sentences)</label>
+              </div>
+              <div class="radio-item">
+                <input type="radio" id="length-long" name="length" value="long" />
+                <label for="length-long">Long (5+ sentences)</label>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Intent (Multi-Select)</label>
+            <div class="checkbox-group">
+              <div class="checkbox-item">
+                <input type="checkbox" id="intent-agree" name="intent-agree" value="agree" checked />
+                <label for="intent-agree">Agree & Add Insight</label>
+              </div>
+              <div class="checkbox-item">
+                <input type="checkbox" id="intent-question" name="intent-question" value="question" />
+                <label for="intent-question">Ask Question</label>
+              </div>
+              <div class="checkbox-item">
+                <input type="checkbox" id="intent-humor" name="intent-humor" value="humor" />
+                <label for="intent-humor">Add Humor</label>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Advanced</label>
+            <div class="toggle-row">
+              <label for="useEmojis">Use emojis sparingly</label>
+              <input type="checkbox" id="useEmojis" name="useEmojis" />
+            </div>
+            <div class="toggle-row">
+              <label for="mentionAuthor">Mention author when natural</label>
+              <input type="checkbox" id="mentionAuthor" name="mentionAuthor" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="formality">Formality</label>
+            <input type="range" id="formality" name="formality" min="0" max="100" value="50" />
+            <div class="range-help">
+              <span>Informal</span>
+              <span>Formal</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Model Selection -->
+        <div class="form-section">
+          <h2>Model</h2>
+          <div class="form-group">
+            <select id="model" name="model">
+              <option value="gpt-4o-mini">GPT-4o mini (Fast & Cheap)</option>
+              <option value="gpt-4o">GPT-4o (Most Capable)</option>
+              <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Budget)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Buttons -->
+        <div class="form-section" style="border-bottom: none;">
+          <div class="button-group">
+            <button type="submit" class="btn-primary">Save Settings</button>
+            <button type="button" id="clearBtn" class="btn-secondary">Clear Data</button>
+          </div>
+          <div id="saveStatus" style="margin-top: 12px;"></div>
+        </div>
+      </form>
+    </div>
+
+    <script src="popup.ts" type="module"></script>
+  </body>
+</html>
