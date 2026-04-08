@@ -9,6 +9,9 @@ export default defineConfig({
     minify: 'terser',
     sourcemap: false,
     rollupOptions: {
+      input: {
+        settings: 'src/settings/settings.html',
+      },
       output: {
         manualChunks: undefined,
       },

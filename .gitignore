@@ -37,3 +37,5 @@ npm-debug.log*
 key.pem
 
 .github/
+COMMIT_STRATEGY.md
+SECURITY_AUDIT.md

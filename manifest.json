@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Quip — AI Comment Generator",
+  "name": "Quip - Comment Generator",
   "version": "1.0.0",
-  "description": "Generate AI-powered comments for LinkedIn with your OpenAI API key",
+  "description": "Generate AI-powered comments for LinkedIn with your OpenAI API key. Everything is local on your browser - we never see your API key or generated comments.",
   "icons": {
     "16": "src/assets/icons/icon16.png",
     "48": "src/assets/icons/icon48.png",
@@ -10,7 +10,7 @@
   },
   "action": {
     "default_popup": "src/popup/popup.html",
-    "default_title": "Quip — AI Comment Generator"
+    "default_title": "Quip - Comment Generator (click to open settings)"
   },
   "background": {
     "service_worker": "src/background/service-worker.ts"
@@ -32,6 +32,17 @@
   ],
   "permissions": [
     "storage",
-    "activeTab"
+    "activeTab",
+    "tabs"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/settings/settings.html"
+      ],
+      "matches": [
+        "https://www.linkedin.com/*"
+      ]
+    }
   ]
 }
