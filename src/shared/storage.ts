@@ -12,11 +12,15 @@ const DEFAULT_SETTINGS: StoredSettings = {
   defaultTone: ['professional'],
   defaultLength: 'medium',
   defaultIntent: ['agree', 'insight'],
+  panelMode: 'sidebar',
   useEmojis: false,
   mentionAuthor: false,
   formality: 50,
   model: 'gpt-4o-mini',
   provider: 'openai',
+  commenterInterests: '',
+  customInstruction: '',
+  temperature: 0.75,
 };
 
 /**

@@ -2,7 +2,7 @@
  * All TypeScript type definitions for Quip
  */
 
-export type Tone = 'professional' | 'friendly' | 'casual' | 'witty' | 'empathetic' | 'humorous';
+export type Tone = 'professional' | 'friendly' | 'casual' | 'witty' | 'empathetic' | 'humorous' | 'non-robotic' | 'natural';
 export type Length = 'crisp' | 'medium' | 'long';
 export type Intent =
   | 'agree'
@@ -15,6 +15,7 @@ export type Intent =
   | 'networking'
   | 'humor';
 export type Provider = 'openai';
+export type PanelMode = 'sidebar' | 'inline';
 
 export interface StoredSettings {
   apiKey: string;
@@ -22,11 +23,15 @@ export interface StoredSettings {
   defaultTone: Tone[];
   defaultLength: Length;
   defaultIntent: Intent[];
+  panelMode: PanelMode;
   useEmojis: boolean;
   mentionAuthor: boolean;
   formality: number; // 0-100 slider
   model: string; // 'gpt-4o-mini', 'gpt-4o', 'gpt-3.5-turbo'
   provider: Provider;
+  commenterInterests: string;    // User interests/expertise
+  customInstruction: string;     // Global custom prompt
+  temperature: number;           // 0.2-1.1 creativity control
 }
 
 export interface GenerateOptions {
@@ -37,9 +42,11 @@ export interface GenerateOptions {
   length: Length;
   intent: Intent[];
   role: string;
+  commenterInterests?: string;
   useEmojis: boolean;
   mentionAuthor: boolean;
   formality: number;
+  temperature?: number;
   customInstruction?: string;
 }
 
@@ -85,5 +92,4 @@ export interface PanelState {
   isLoading: boolean;
   results: string[];
   error: string | null;
-  customModify: string;
 }
