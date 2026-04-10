@@ -6,9 +6,6 @@
 import { generateComment } from './providers/openai';
 import { GenerateMessage, GenerateOptions, StoredSettings } from '../content/shared/types';
 
-console.log('✨ Quip Service Worker started');
-console.log('[Service Worker] Ready to receive messages from content script');
-
 /**
  * Get stored settings from chrome.storage.local
  */
@@ -21,11 +18,15 @@ function getSettings(): Promise<StoredSettings> {
         defaultTone: ['professional'],
         defaultLength: 'medium',
         defaultIntent: ['agree', 'insight'],
+        panelMode: 'sidebar',
         useEmojis: false,
         mentionAuthor: false,
         formality: 50,
         model: 'gpt-4o-mini',
         provider: 'openai',
+        commenterInterests: '',
+        customInstruction: '',
+        temperature: 0.75,
       };
       resolve(
         data['quip_settings']
@@ -39,21 +40,14 @@ function getSettings(): Promise<StoredSettings> {
 /**
  * Message listener for content script
  */
-chrome.runtime.onMessage.addListener((request: GenerateMessage, sender, sendResponse) => {
-  console.log('[Service Worker] 📨 Received message:', request.type);
-  console.log('[Service Worker] Message from:', sender.url);
-
+chrome.runtime.onMessage.addListener((request: GenerateMessage, _sender, sendResponse) => {
   if (request.type === 'GENERATE') {
-    console.log('[Service Worker] 🚀 Starting generation with options:', request.options);
     // Handle generate request asynchronously
     handleGenerateRequest(request.options)
       .then((result) => {
-        console.log('[Service Worker] ✅ Generation success');
-        console.log('[Service Worker] Result:', result);
         sendResponse({ status: 'success', data: result });
       })
       .catch((error) => {
-        console.error('[Service Worker] ❌ Generation error:', error);
         sendResponse({
           status: 'error',
           error: { message: error instanceof Error ? error.message : String(error), code: 'GENERATION_ERROR' },
@@ -64,7 +58,6 @@ chrome.runtime.onMessage.addListener((request: GenerateMessage, sender, sendResp
     return true;
   }
 
-  console.warn('[Service Worker] Unknown message type:', request.type);
   sendResponse({ status: 'error', message: 'Unknown message type' });
   return false;
 });
@@ -73,41 +66,32 @@ chrome.runtime.onMessage.addListener((request: GenerateMessage, sender, sendResp
  * Handle GENERATE message from content script
  */
 async function handleGenerateRequest(options: GenerateOptions) {
-  try {
-    console.log('[Service Worker] Loading settings...');
-    const settings = await getSettings();
-    console.log('[Service Worker] Settings loaded: role =', settings.role);
+  const settings = await getSettings();
 
-    if (!settings.apiKey) {
-      console.error('[Service Worker] ❌ No API key configured!');
-      throw {
-        code: 'MISSING_API_KEY',
-        message: 'OpenAI API key not configured. Please set it in extension settings.',
-        timestamp: Date.now(),
-      };
-    }
-    console.log('[Service Worker] ✅ API key found');
-
-    // Add formality level from settings if available
-    const optionsWithFormality = {
-      ...options,
-      formality: settings.formality || 50,
+  if (!settings.apiKey) {
+    throw {
+      code: 'MISSING_API_KEY',
+      message: 'OpenAI API key not configured. Please set it in extension settings.',
+      timestamp: Date.now(),
     };
-
-    console.log('[Service Worker] Calling OpenAI API with model:', settings.model || 'gpt-4o-mini');
-    // Call OpenAI provider
-    const result = await generateComment(
-      optionsWithFormality,
-      settings.apiKey,
-      settings.model || 'gpt-4o-mini'
-    );
-
-    console.log('[Service Worker] ✅ OpenAI API response received:', result);
-    return result;
-  } catch (error) {
-    console.error('[Service Worker] ❌ Error in handleGenerateRequest:', error);
-    throw error;
   }
+
+  // Respect panel-level controls first, then fall back to saved defaults.
+  const optionsWithDefaults = {
+    ...options,
+    role: options.role || settings.role,
+    formality: options.formality ?? settings.formality ?? 50,
+    temperature: options.temperature ?? 0.75,
+  };
+
+  // Call OpenAI provider
+  const result = await generateComment(
+    optionsWithDefaults,
+    settings.apiKey,
+    settings.model || 'gpt-4o-mini'
+  );
+
+  return result;
 }
 
 export {};
