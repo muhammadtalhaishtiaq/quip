@@ -1,178 +1,121 @@
 /**
  * Content script for LinkedIn
- * Event-driven approach: intercepts clicks on LinkedIn's native comment button
- * When clicked, extracts post content and activates Quip AI comment generator
+ * Supports two modes:
+ * 1) Sticky right sidebar
+ * 2) Inline panel above LinkedIn composer
  */
 
 import { extractPostData } from './shared/extractor';
 import { QuipPanel } from './shared/panel';
-import { GenerateOptions, PanelSubmitOptions, PostData, StoredSettings } from './shared/types';
-import { LINKEDIN_SELECTORS, QUIP_CLASSES } from './shared/selectors';
+import { getSettings } from '../shared/storage';
+import { GenerateOptions, PanelMode, PostData, StoredSettings, Tone, Length, Intent } from './shared/types';
+import { LINKEDIN_SELECTORS } from './shared/selectors';
 
-console.log('✨ Quip content script loaded on LinkedIn');
+let sidebarPanel: QuipPanel | null = null;
+let activePanel: QuipPanel | null = null;
+let activePanelMode: PanelMode = 'sidebar';
+let activeInlineHost: HTMLDivElement | null = null;
+let activeComposer: Element | null = null;
+let composerCloseObserver: MutationObserver | null = null;
+let currentPostData: PostData | null = null;
+let currentPostElement: Element | null = null;
+let currentUserSettings: StoredSettings | null = null;
 
-let activePanel: { panel: QuipPanel; host: HTMLElement; button: HTMLElement } | null = null;
+// Session-only filter state (persists across posts until extension reload)
+let lastUsedFilters: {
+  tone: Tone[];
+  length: Length;
+  intent: Intent[];
+} | null = null;
 
-function closeActivePanel(): void {
-  if (!activePanel) return;
-  activePanel.panel.close();
-  activePanel.button.classList.remove(QUIP_CLASSES.panelOpen);
-  activePanel = null;
-}
+/**
+ * Initialize or create the sticky sidebar
+ */
+function initializeSidebar(): QuipPanel {
+  if (sidebarPanel) return sidebarPanel;
 
-function positionPanel(host: HTMLElement, anchor: HTMLElement): void {
-  const rect = anchor.getBoundingClientRect();
-  const top = Math.min(window.innerHeight - 24, rect.bottom + 10);
-  const idealLeft = rect.left;
-  const maxLeft = Math.max(12, window.innerWidth - 392);
-  const left = Math.max(12, Math.min(idealLeft, maxLeft));
-
-  host.style.cssText = `
+  // Create sidebar container
+  const sidebarHost = document.createElement('div');
+  sidebarHost.id = 'quip-sidebar-host';
+  sidebarHost.style.cssText = `
     position: fixed;
-    z-index: 999999;
-    top: ${top}px;
-    left: ${left}px;
+    top: 0;
+    right: 0;
+    width: 360px;
+    height: 100vh;
+    z-index: 999998;
+    background: white;
+    box-shadow: -2px 0 8px rgba(0, 0, 0, 0.1);
+    display: none;
+    overflow: hidden;
   `;
+
+  document.body.appendChild(sidebarHost);
+
+  sidebarPanel = new QuipPanel(sidebarHost, 'sidebar');
+
+  return sidebarPanel;
 }
 
-/**
- * Check if user has API key configured
- */
-async function hasApiKeyConfigured(): Promise<boolean> {
-  return new Promise((resolve) => {
-    chrome.storage.local.get('quip_settings', (data: Record<string, unknown>) => {
-      const settings = data['quip_settings'];
-      const hasKey =
-        typeof settings === 'object' &&
-        settings !== null &&
-        !!(settings as { apiKey?: string }).apiKey;
-      resolve(hasKey);
-    });
-  });
-}
-
-/**
- * Get user settings
- */
-async function getUserSettings(): Promise<StoredSettings> {
-  return new Promise((resolve) => {
-    chrome.storage.local.get('quip_settings', (data: Record<string, unknown>) => {
-      const defaults: StoredSettings = {
-        role: 'Professional',
-        defaultTone: ['professional'],
-        defaultLength: 'medium',
-        defaultIntent: ['agree', 'insight'],
-        apiKey: '',
-        useEmojis: false,
-        mentionAuthor: false,
-        formality: 50,
-        model: 'gpt-4o-mini',
-        provider: 'openai',
-      };
-      resolve(
-        data['quip_settings']
-          ? { ...defaults, ...(data['quip_settings'] as Partial<StoredSettings>) }
-          : defaults
-      );
-    });
-  });
-}
-
-/**
- * Find the post container from the comment button
- * LinkedIn posts are in containers with role="listitem"
- */
-function findPostContainerFromButton(button: Element): Element | null {
-  let current: Element | null = button;
-
-  // Traverse up to find the post container (role="listitem" or class containing "listitem")
-  while (current && current !== document.body) {
-    if (current.getAttribute('role') === 'listitem') {
-      console.log('[Quip] Found post container via role="listitem"');
-      return current;
-    }
-
-    // Fallback: check for common post container classes
-    const classes = current.className;
-    if (
-      typeof classes === 'string' &&
-      (classes.includes('feed') || classes.includes('update') || classes.includes('post'))
-    ) {
-      console.log('[Quip] Found post container via class:', classes.substring(0, 50));
-      return current;
-    }
-
-    current = current.parentElement;
+function destroyInlinePanel(): void {
+  if (composerCloseObserver) {
+    composerCloseObserver.disconnect();
+    composerCloseObserver = null;
   }
 
-  console.log('[Quip] Could not find post container from comment button');
+  if (activeInlineHost) {
+    activeInlineHost.remove();
+    activeInlineHost = null;
+  }
+
+  if (activePanelMode === 'inline') {
+    activePanel = null;
+  }
+
+  activeComposer = null;
+}
+
+function setupComposerCloseObserver(postElement: Element, composer: Element): void {
+  if (composerCloseObserver) {
+    composerCloseObserver.disconnect();
+  }
+
+  composerCloseObserver = new MutationObserver(() => {
+    const composerStillInDom = document.body.contains(composer);
+    if (!composerStillInDom) {
+      destroyInlinePanel();
+    }
+  });
+
+  composerCloseObserver.observe(postElement, {
+    childList: true,
+    subtree: true,
+  });
+}
+
+async function waitForComposerInPost(postElement: Element, timeoutMs: number = 2500): Promise<Element | null> {
+  const started = Date.now();
+
+  while (Date.now() - started < timeoutMs) {
+    const composer = postElement.querySelector(LINKEDIN_SELECTORS.commentTextarea);
+    if (composer) {
+      return composer;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 120));
+  }
+
   return null;
 }
 
-/**
- * Handle LinkedIn comment button click
- * This is called when user clicks the native comment button
- */
-async function handleCommentButtonClick(button: Element) {
-  console.log('[Quip] Comment button clicked!');
+function setupPanelCallbacks(panel: QuipPanel): void {
+  panel.setOnGenerate(generateComment);
 
-  const postElement = findPostContainerFromButton(button);
-  if (!postElement) {
-    console.error('[Quip] Could not find post container');
-    return;
-  }
-
-  // Check if user has API key configured
-  console.log('[Quip] Checking API key configuration...');
-  const hasKey = await hasApiKeyConfigured();
-  console.log('[Quip] API key configured:', hasKey);
-
-  if (!hasKey) {
-    console.error('[Quip] ❌ No API key configured!');
-    // Don't block LinkedIn's native comment action
-    return;
-  }
-
-  // Extract post data
-  console.log('[Quip] Extracting post data from clicked post...');
-  const postData = extractPostData(postElement);
-  console.log('[Quip] Post data extracted:', {
-    text: postData?.text?.substring(0, 100),
-    author: postData?.author,
-  });
-
-  if (!postData || !postData.text) {
-    console.error('[Quip] ❌ Could not extract post content');
-    return;
-  }
-
-  // Get user settings
-  console.log('[Quip] Loading user settings...');
-  const userSettings = await getUserSettings();
-  console.log('[Quip] User settings loaded:', { role: userSettings.role });
-
-  // Create and show Quip panel
-  closeActivePanel();
-
-  const panelHost = document.createElement('div');
-  panelHost.className = QUIP_CLASSES.panelHost;
-  positionPanel(panelHost, button as HTMLElement);
-  document.body.appendChild(panelHost);
-  console.log('[Quip] Panel host created and appended to DOM');
-
-  const panel = new QuipPanel(panelHost);
-  activePanel = { panel, host: panelHost, button: button as HTMLElement };
-  button.classList.add(QUIP_CLASSES.panelOpen);
-  console.log('[Quip] Panel instance created and active');
-
-  panel.setState({
-    tone: userSettings.defaultTone || ['professional'],
-    length: userSettings.defaultLength || 'medium',
-    intent: userSettings.defaultIntent || ['agree', 'insight'],
-  });
-
-  panel.setOnGenerate(async (options: PanelSubmitOptions) => {
-    await generateComment(panel, postData, userSettings, options);
+  panel.setOnInsertResult(({ text }) => {
+    injectCommentToTextarea(text);
+    if (activePanelMode === 'inline') {
+      destroyInlinePanel();
+    }
   });
 
   panel.setOnCopyResult((text: string) => {
@@ -181,41 +124,126 @@ async function handleCommentButtonClick(button: Element) {
     }
   });
 
-  panel.setOnInsertResult(({ text }) => {
-    injectCommentToTextarea(postElement, text);
+  // Track filter changes for session persistence
+  panel.setOnStateChange((state) => {
+    if (state.tone || state.length || state.intent) {
+      lastUsedFilters = {
+        tone: state.tone || lastUsedFilters?.tone || [],
+        length: state.length || lastUsedFilters?.length || 'medium',
+        intent: state.intent || lastUsedFilters?.intent || [],
+      };
+    }
   });
+}
+
+async function initializeInlinePanel(postElement: Element): Promise<QuipPanel | null> {
+  const composer = await waitForComposerInPost(postElement);
+
+  if (!composer) {
+    return null;
+  }
+
+  destroyInlinePanel();
+
+  const inlineHost = document.createElement('div');
+  inlineHost.id = 'quip-inline-host';
+  inlineHost.style.cssText = `
+    width: min(720px, 100%);
+    margin: 0 0 12px 0;
+    position: relative;
+    z-index: 2;
+  `;
+
+  composer.parentElement?.insertBefore(inlineHost, composer);
+
+  const inlinePanel = new QuipPanel(inlineHost, 'inline');
+  setupPanelCallbacks(inlinePanel);
+
+  // Seed with last-used filters if available, otherwise use global defaults
+  if (lastUsedFilters) {
+    inlinePanel.setState({
+      tone: lastUsedFilters.tone,
+      length: lastUsedFilters.length,
+      intent: lastUsedFilters.intent,
+    });
+  }
+
+  activeInlineHost = inlineHost;
+  activeComposer = composer;
+  setupComposerCloseObserver(postElement, composer);
+
+  return inlinePanel;
+}
+
+/**
+ * Check if user has API key configured
+ */
+async function hasApiKeyConfigured(): Promise<boolean> {
+  const settings = await getSettings();
+  return !!settings.apiKey;
+}
+
+/**
+ * Get user settings
+ */
+async function getUserSettings(): Promise<StoredSettings> {
+  return getSettings();
+}
+
+/**
+ * Find the post container from the comment button
+ */
+function findPostContainerFromButton(button: Element): Element | null {
+  let current: Element | null = button;
+
+  while (current && current !== document.body) {
+    if (current.getAttribute('role') === 'listitem') {
+      return current;
+    }
+
+    current = current.parentElement;
+  }
+
+  return null;
 }
 
 /**
  * Generate comment by sending message to service worker
  */
-async function generateComment(
-  panel: QuipPanel,
-  postData: PostData,
-  userSettings: StoredSettings,
-  panelOptions: PanelSubmitOptions
-) {
-  try {
-    console.log('[Quip] 🚀 GENERATING COMMENT - sending to service worker...');
-    panel.setState({ isLoading: true, error: null });
+async function generateComment(): Promise<void> {
+  if (!activePanel || !currentPostData || !currentUserSettings) {
+    return;
+  }
 
-    // Prepare the generate options
-    const generateOptions: GenerateOptions = {
-      postText: postData.text,
-      postAuthor: postData.author,
-      tone: panelOptions.tone || userSettings.defaultTone,
-      length: panelOptions.length || userSettings.defaultLength,
-      intent: panelOptions.intent || userSettings.defaultIntent,
-      role: userSettings.role,
-      useEmojis: userSettings.useEmojis,
-      mentionAuthor: userSettings.mentionAuthor,
-      customInstruction: panelOptions.customInstruction,
-      excerpt: postData.excerpt,
-      formality: userSettings.formality,
+  try {
+    activePanel.setState({ isLoading: true, error: null });
+
+    // Get current panel state for UI controls (tone, length, intent only)
+    const panelState = activePanel.getState() || {
+      tone: currentUserSettings.defaultTone,
+      length: currentUserSettings.defaultLength,
+      intent: currentUserSettings.defaultIntent,
+      isLoading: false,
+      results: [],
+      error: null,
     };
 
-    // Send message to service worker
-    console.log('[Quip] Sending GENERATE message to service worker with options:', generateOptions);
+    const generateOptions: GenerateOptions = {
+      postText: currentPostData.text,
+      postAuthor: currentPostData.author,
+      excerpt: currentPostData.excerpt,
+      tone: panelState.tone,
+      length: panelState.length,
+      intent: panelState.intent,
+      role: currentUserSettings.role,
+      commenterInterests: currentUserSettings.commenterInterests || '',
+      useEmojis: currentUserSettings.useEmojis,
+      mentionAuthor: currentUserSettings.mentionAuthor,
+      customInstruction: currentUserSettings.customInstruction || '',
+      formality: currentUserSettings.formality,
+      temperature: currentUserSettings.temperature ?? 0.75,
+    };
+
     const response = await new Promise<{
       status: string;
       data?: { comments?: string[] };
@@ -224,9 +252,7 @@ async function generateComment(
       chrome.runtime.sendMessage(
         { type: 'GENERATE', options: generateOptions },
         (response: { status: string; data?: { comments?: string[] }; error?: { message?: string } }) => {
-          console.log('[Quip] Response from service worker:', response);
           if (chrome.runtime.lastError) {
-            console.error('[Quip] Chrome runtime error:', chrome.runtime.lastError);
             reject(new Error(chrome.runtime.lastError.message));
           } else {
             resolve(response);
@@ -236,24 +262,20 @@ async function generateComment(
     });
 
     if (response?.status === 'success') {
-      console.log('[Quip] ✅ Successfully generated comments:', response.data?.comments);
-      const generatedComments = response.data?.comments || [];
-      panel.setState({
+      activePanel.setState({
         isLoading: false,
-        results: generatedComments,
+        results: response.data?.comments || [],
       });
     } else {
       const errorMsg = response?.error?.message || 'Failed to generate comment';
-      console.error('[Quip] ❌ Generation failed:', errorMsg);
-      panel.setState({
+      activePanel.setState({
         isLoading: false,
         error: errorMsg,
       });
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : 'Unknown error occurred';
-    console.error('[Quip] ❌ Generation error:', error);
-    panel.setState({
+    activePanel.setState({
       isLoading: false,
       error: errorMsg,
     });
@@ -263,92 +285,121 @@ async function generateComment(
 /**
  * Inject the generated comment into LinkedIn's comment textarea
  */
-function injectCommentToTextarea(postElement: Element, commentText: string) {
-  // Look for the LinkedIn comment textarea
-  const textarea =
-    (postElement.querySelector(LINKEDIN_SELECTORS.commentTextarea) ||
-      postElement.ownerDocument.querySelector(LINKEDIN_SELECTORS.commentTextarea)) as
-      | HTMLTextAreaElement
-      | null;
+function injectCommentToTextarea(commentText: string) {
+  if (!currentPostElement) return;
 
-  if (textarea) {
-    // Set the value
-    textarea.value = commentText;
+  const composerTarget =
+    (activeComposer as HTMLElement | null) ||
+    (currentPostElement.querySelector(LINKEDIN_SELECTORS.commentTextarea) as HTMLElement | null);
 
-    // Trigger input event to let LinkedIn know the value changed
-    textarea.dispatchEvent(new Event('input', { bubbles: true }));
-    textarea.dispatchEvent(new Event('change', { bubbles: true }));
-
-    // Focus and scroll into view
-    textarea.focus();
-    textarea.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-    console.log('[Quip] Comment injected into textarea');
-    closeActivePanel();
-  } else {
-    console.warn('[Quip] Could not find comment textarea');
+  if (composerTarget instanceof HTMLTextAreaElement) {
+    composerTarget.value = commentText;
+    composerTarget.dispatchEvent(new Event('input', { bubbles: true }));
+    composerTarget.dispatchEvent(new Event('change', { bubbles: true }));
+    composerTarget.focus();
+    composerTarget.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } else if (composerTarget && composerTarget.getAttribute('contenteditable') === 'true') {
+    composerTarget.textContent = commentText;
+    composerTarget.dispatchEvent(new Event('input', { bubbles: true }));
+    composerTarget.dispatchEvent(new Event('change', { bubbles: true }));
+    composerTarget.focus();
+    composerTarget.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 }
 
 /**
- * Global click listener to intercept LinkedIn comment button clicks
+ * Handle LinkedIn comment button click
+ */
+async function handleCommentButtonClick(button: Element) {
+  const postElement = findPostContainerFromButton(button);
+  if (!postElement) {
+    return;
+  }
+
+  const hasKey = await hasApiKeyConfigured();
+  if (!hasKey) {
+    return;
+  }
+
+  const postData = extractPostData(postElement);
+  if (!postData || !postData.text) {
+    return;
+  }
+
+  // Get user settings
+  const userSettings = await getUserSettings();
+
+  // Update current context
+  currentPostData = postData;
+  currentPostElement = postElement;
+  currentUserSettings = userSettings;
+  activePanelMode = userSettings.panelMode || 'sidebar';
+
+  if (activePanelMode === 'inline') {
+    const inlinePanel = await initializeInlinePanel(postElement);
+    if (inlinePanel) {
+      activePanel = inlinePanel;
+    } else {
+      activePanelMode = 'sidebar';
+    }
+  }
+
+  if (activePanelMode === 'sidebar') {
+    if (!sidebarPanel) {
+      initializeSidebar();
+    }
+    if (sidebarPanel) {
+      setupPanelCallbacks(sidebarPanel);
+      activePanel = sidebarPanel;
+      sidebarPanel.show();
+    }
+  }
+
+  if (activePanel) {
+    // Seed with last-used filters (session-persistent), or fall back to global defaults
+    const seedFilters = lastUsedFilters || {
+      tone: userSettings.defaultTone,
+      length: userSettings.defaultLength,
+      intent: userSettings.defaultIntent,
+    };
+
+    activePanel.setState({
+      tone: seedFilters.tone as Tone[],
+      length: seedFilters.length as Length,
+      intent: seedFilters.intent as Intent[],
+      error: null,
+    });
+
+    await generateComment();
+  }
+}
+
+/**
+ * Global click listener for comment buttons
  */
 function setupCommentButtonListener(): void {
-  console.log('[Quip] Setting up global comment button listener...');
-
   document.addEventListener(
     'click',
     (event) => {
       const target = event.target as HTMLElement;
-
-      // Check if clicked element is or contains a comment button
       const commentButton = target.closest(LINKEDIN_SELECTORS.commentButton);
 
       if (commentButton) {
-        console.log('[Quip] ✨ LinkedIn comment button detected!');
         handleCommentButtonClick(commentButton);
       }
     },
-    true // Use capture phase to intercept early
+    true
   );
-
-  console.log('[Quip] Global comment button listener installed');
-}
-
-/**
- * Close panel on outside click
- */
-function setupOutsideClickListener(): void {
-  document.addEventListener('click', (event) => {
-    if (!activePanel) return;
-    const path = event.composedPath();
-    if (path.includes(activePanel.host) || path.includes(activePanel.button)) {
-      return;
-    }
-    closeActivePanel();
-  });
 }
 
 /**
  * Initialize content script
  */
 async function init(): Promise<void> {
-  console.log('[Quip] Initializing content script...');
-
-  // Give LinkedIn time to load the feed
   await new Promise((resolve) => setTimeout(resolve, 500));
 
   // Set up event listeners
   setupCommentButtonListener();
-  setupOutsideClickListener();
-
-  // Handle window resize to reposition panel
-  window.addEventListener('resize', () => {
-    if (!activePanel) return;
-    positionPanel(activePanel.host, activePanel.button);
-  });
-
-  console.log('[Quip] Content script initialization complete');
 }
 
 // Wait for DOM to be ready
