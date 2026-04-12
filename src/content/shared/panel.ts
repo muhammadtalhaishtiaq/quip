@@ -1,590 +1,793 @@
 /**
- * Panel UI for Quip - rendered in Shadow DOM
- * Vanilla TypeScript with Tailwind CSS styles injected as string
+ * QuipPanel: Collapsible sidebar with full controls and suggestion results
+ * Design: Minimized tab on right edge, expandable to full control panel
  */
 
-import { PanelResultAction, PanelState, Intent, Length, PanelSubmitOptions, Tone } from './types';
-import { INTENT_OPTIONS, TONE_OPTIONS, LENGTH_OPTIONS } from '../../shared/constants';
+import { Tone, Length, Intent, PanelMode, PanelResultAction, PanelState } from './types';
 
 export class QuipPanel {
   private host: HTMLElement;
   private shadow: ShadowRoot;
-  private state: PanelState = {
-    tone: [],
-    length: 'medium',
-    intent: [],
-    isLoading: false,
-    results: [],
-    error: null,
-    customModify: '',
-  };
+  private state: PanelState;
+  private mode: PanelMode;
+  private isExpanded: boolean = true;
+  private onGenerate: (() => Promise<void>) | null = null;
+  private onInsertResult: ((action: PanelResultAction) => void) | null = null;
+  private onCopyResult: ((text: string) => void) | null = null;
+  private onStateChange: ((state: Partial<PanelState>) => void) | null = null;
 
-  private onGenerate: (options: PanelSubmitOptions) => void = () => {};
-  private onCopyResult: (text: string) => void = () => {};
-  private onInsertResult: (result: PanelResultAction) => void = () => {};
+  private applyHostLayout(): void {
+    if (this.mode === 'inline') {
+      this.host.style.position = 'relative';
+      this.host.style.top = 'auto';
+      this.host.style.right = 'auto';
+      this.host.style.width = '100%';
+      this.host.style.height = 'auto';
+      this.host.style.background = 'transparent';
+      this.host.style.boxShadow = 'none';
+      this.host.style.overflow = 'visible';
+      return;
+    }
 
-  constructor(hostElement: HTMLElement) {
-    this.host = hostElement;
-    this.shadow = hostElement.attachShadow({ mode: 'closed' });
+    if (this.isExpanded) {
+      this.host.style.top = '0';
+      this.host.style.right = '0';
+      this.host.style.width = '360px';
+      this.host.style.height = '100vh';
+      this.host.style.background = 'white';
+      this.host.style.boxShadow = '-2px 0 8px rgba(0, 0, 0, 0.1)';
+      this.host.style.overflow = 'hidden';
+    } else {
+      this.host.style.top = '72px';
+      this.host.style.right = '16px';
+      this.host.style.width = 'auto';
+      this.host.style.height = 'auto';
+      this.host.style.background = 'transparent';
+      this.host.style.boxShadow = 'none';
+      this.host.style.overflow = 'visible';
+    }
+  }
+
+  constructor(host: HTMLElement, mode: PanelMode = 'sidebar') {
+    this.host = host;
+    this.mode = mode;
+    this.shadow = host.attachShadow({ mode: 'closed' });
+
+    this.state = {
+      tone: ['professional'],
+      length: 'medium',
+      intent: ['agree', 'insight'],
+      isLoading: false,
+      results: [],
+      error: null,
+    };
+
+    this.applyHostLayout();
     this.render();
   }
 
-  /**
-   * Set callback for when user clicks Generate
-   */
-  setOnGenerate(callback: (options: PanelSubmitOptions) => void) {
+  setState(updates: Partial<PanelState>): void {
+    this.state = { ...this.state, ...updates };
+    if (this.onStateChange) {
+      this.onStateChange(updates);
+    }
+    this.render();
+  }
+
+  setOnGenerate(callback: () => Promise<void>): void {
     this.onGenerate = callback;
   }
 
-  /**
-   * Set callback for when user copies a result
-   */
-  setOnCopyResult(callback: (text: string) => void) {
-    this.onCopyResult = callback;
-  }
-
-  setOnInsertResult(callback: (result: PanelResultAction) => void) {
+  setOnInsertResult(callback: (action: PanelResultAction) => void): void {
     this.onInsertResult = callback;
   }
 
-  /**
-   * Update panel state
-   */
-  setState(updates: Partial<PanelState>) {
-    this.state = { ...this.state, ...updates };
-    this.render();
+  setOnCopyResult(callback: (text: string) => void): void {
+    this.onCopyResult = callback;
   }
 
-  /**
-   * Get current panel state
-   */
+  setOnStateChange(callback: (state: Partial<PanelState>) => void): void {
+    this.onStateChange = callback;
+  }
+
   getState(): PanelState {
     return { ...this.state };
   }
 
-  /**
-   * Main render function
-   */
-  private render() {
-    this.shadow.innerHTML = this.getHTML();
-    this.attachEventListeners();
+  show(): void {
+    this.host.style.display = 'block';
   }
 
-  /**
-   * Build HTML for panel
-   */
-  private getHTML(): string {
-    const html = `
-      <style>
-        :host {
-          --sage-600: #6B5751;
-          --amber-400: #FBBF24;
-          --emerald-500: #10B981;
-          --slate-900: #0F172A;
-          --slate-100: #F1F5F9;
-        }
+  hide(): void {
+    this.host.style.display = 'none';
+  }
 
-        * {
-          margin: 0;
-          padding: 0;
-          box-sizing: border-box;
-        }
+  close(): void {
+    this.hide();
+  }
 
-        .panel-wrapper {
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-          background: white;
-          border: 1px solid #e2e8f0;
-          border-radius: 8px;
-          box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
-          width: 380px;
-          max-width: min(380px, calc(100vw - 24px));
-          max-height: 600px;
-          overflow-y: auto;
-          animate: slideIn 0.3s ease-out;
-        }
+  private toggleExpanded(): void {
+    if (this.mode === 'inline') {
+      return;
+    }
+    this.isExpanded = !this.isExpanded;
+    this.applyHostLayout();
+    this.render();
+  }
 
-        @keyframes slideIn {
-          from {
-            opacity: 0;
-            transform: translateY(-20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-
-        .panel-header {
-          padding: 16px;
-          border-bottom: 1px solid #e2e8f0;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-        }
-
-        .panel-title {
-          font-size: 16px;
-          font-weight: 600;
-          color: var(--slate-900);
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .panel-title-icon {
-          font-size: 18px;
-        }
-
-        .panel-close {
-          background: none;
-          border: none;
-          font-size: 20px;
-          cursor: pointer;
-          color: #94a3b8;
-          padding: 0;
-          line-height: 1;
-        }
-
-        .panel-close:hover {
-          color: var(--slate-900);
-        }
-
-        .panel-content {
-          padding: 16px;
-        }
-
-        .panel-summary {
-          background: #f8fafc;
-          border: 1px solid #e2e8f0;
-          border-radius: 6px;
-          padding: 10px 12px;
-          margin-bottom: 16px;
-          font-size: 12px;
-          color: #475569;
-          line-height: 1.5;
-        }
-
-        .chip-row {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-          margin-top: 8px;
-        }
-
-        .chip {
-          flex: 0 0 auto;
-          padding: 6px 10px;
-          border-radius: 999px;
-          border: 1px solid #d4cec7;
-          background: #fff;
-          color: var(--sage-600);
-          font-size: 12px;
-          cursor: pointer;
-        }
-
-        .chip:hover {
-          background: #fffaf0;
-          border-color: var(--amber-400);
-        }
-
-        .form-section {
-          margin-bottom: 16px;
-        }
-
-        .form-label {
-          display: block;
-          font-size: 13px;
-          font-weight: 600;
-          color: var(--slate-900);
-          margin-bottom: 8px;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-        }
-
-        .checkbox-group,
-        .radio-group {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        .checkbox-item,
-        .radio-item {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          font-size: 13px;
-        }
-
-        input[type="checkbox"],
-        input[type="radio"] {
-          cursor: pointer;
-          accent-color: var(--sage-600);
-        }
-
-        .checkbox-item label,
-        .radio-item label {
-          cursor: pointer;
-          flex: 1;
-        }
-
-        textarea {
-          width: 100%;
-          min-height: 60px;
-          padding: 8px;
-          border: 1px solid #e2e8f0;
-          border-radius: 4px;
-          font-family: inherit;
-          font-size: 13px;
-          resize: vertical;
-        }
-
-        textarea:focus {
-          outline: none;
-          border-color: var(--sage-600);
-          box-shadow: 0 0 0 3px rgba(107, 87, 81, 0.1);
-        }
-
-        .button-group {
-          display: flex;
-          gap: 8px;
-          margin-top: 16px;
-        }
-
-        button {
-          flex: 1;
-          padding: 10px 16px;
-          border: none;
-          border-radius: 6px;
-          font-size: 13px;
-          font-weight: 600;
-          cursor: pointer;
-          transition: all 0.2s;
-        }
-
-        .btn-generate {
-          background: var(--sage-600);
-          color: white;
-        }
-
-        .btn-generate:hover:not(:disabled) {
-          background: #5a4945;
-        }
-
-        .btn-generate:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-
-        .btn-secondary {
-          background: var(--slate-100);
-          color: var(--slate-900);
-        }
-
-        .btn-secondary:hover {
-          background: #e2e8f0;
-        }
-
-        .loading-spinner {
-          display: inline-block;
-          width: 14px;
-          height: 14px;
-          border: 2px solid rgba(107, 87, 81, 0.2);
-          border-top-color: var(--sage-600);
-          border-radius: 50%;
-          animation: spin 0.8s linear infinite;
-          margin-right: 8px;
-        }
-
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-
-        .results-container {
-          margin-top: 16px;
-          padding-top: 16px;
-          border-top: 1px solid #e2e8f0;
-        }
-
-        .result-item {
-          background: #f8fafc;
-          padding: 12px;
-          border-radius: 6px;
-          margin-bottom: 8px;
-          font-size: 13px;
-          line-height: 1.5;
-          color: var(--slate-900);
-        }
-
-        .result-actions {
-          display: flex;
-          gap: 8px;
-          margin-top: 10px;
-        }
-
-        .result-copy,
-        .result-insert {
-          background: var(--sage-600);
-          color: white;
-          border: none;
-          padding: 6px 10px;
-          border-radius: 4px;
-          font-size: 11px;
-          cursor: pointer;
-          flex: 0 0 auto;
-        }
-
-        .result-copy:hover,
-        .result-insert:hover {
-          background: #5a4945;
-        }
-
-        .result-insert {
-          background: var(--emerald-500);
-        }
-
-        .result-insert:hover {
-          background: #059669;
-        }
-
-        .error-message {
-          background: #fee2e2;
-          color: #991b1b;
-          padding: 12px;
-          border-radius: 6px;
-          font-size: 13px;
-          margin-bottom: 16px;
-        }
-      </style>
-
-      <div class="panel-wrapper">
-        <div class="panel-header">
-          <div class="panel-title">
-            <span class="panel-title-icon">✨</span>
-            <span>Generate Comment</span>
-          </div>
-          <button class="panel-close" id="closeBtn">✕</button>
+  private renderToneSelector(): string {
+    const tones: Tone[] = ['professional', 'friendly', 'casual', 'witty', 'empathetic', 'humorous', 'non-robotic', 'natural'];
+    return `
+      <div class="control-section">
+        <label class="section-label">Tone</label>
+        <div class="tone-buttons">
+          ${tones
+            .map(
+              (tone) => `
+            <button 
+              class="tone-btn ${this.state.tone.includes(tone) ? 'active' : ''}"
+              data-tone="${tone}"
+              title="${tone.charAt(0).toUpperCase() + tone.slice(1)}"
+            >
+              ${tone.charAt(0).toUpperCase() + tone.slice(1)}
+            </button>
+          `
+            )
+            .join('')}
         </div>
+      </div>
+    `;
+  }
 
-        <div class="panel-content">
-          ${this.state.error ? `<div class="error-message">${this.escapeHtml(this.state.error)}</div>` : ''}
+  private renderLengthSelector(): string {
+    return `
+      <div class="control-section">
+        <label class="section-label">Length</label>
+        <div class="length-buttons">
+          ${(['crisp', 'medium', 'long'] as Length[])
+            .map(
+              (length) => `
+            <button 
+              class="length-btn ${this.state.length === length ? 'active' : ''}"
+              data-length="${length}"
+            >
+              ${length.charAt(0).toUpperCase() + length.slice(1)}
+            </button>
+          `
+            )
+            .join('')}
+        </div>
+      </div>
+    `;
+  }
 
-          <div class="panel-summary">
-            Saved defaults apply automatically. Adjust anything here only for this post, then click Generate.
+  private renderIntentSelector(): string {
+    const intents: Intent[] = [
+      'agree',
+      'disagree',
+      'question',
+      'insight',
+      'experience',
+      'resource',
+      'gratitude',
+      'networking',
+      'humor',
+    ];
+    return `
+      <div class="control-section">
+        <label class="section-label">Intent</label>
+        <div class="intent-checkboxes">
+          ${intents
+            .map(
+              (intent) => `
+            <label class="checkbox-label">
+              <input 
+                type="checkbox" 
+                class="intent-check"
+                data-intent="${intent}"
+                ${this.state.intent.includes(intent) ? 'checked' : ''}
+              />
+              <span>${intent.charAt(0).toUpperCase() + intent.slice(1)}</span>
+            </label>
+          `
+            )
+            .join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  private renderResultItem(text: string, index: number): string {
+    return `
+      <div class="result-item">
+        <div class="result-number">Generated Comment</div>
+        <div class="result-text">${this.sanitizeHtml(text)}</div>
+        <div class="result-buttons">
+          <button class="copy-btn" data-index="${index}" title="Copy to clipboard">
+            Copy
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  private sanitizeHtml(html: string): string {
+    const div = document.createElement('div');
+    div.textContent = html;
+    return div.innerHTML;
+  }
+
+  private renderControlPanel(): string {
+    return `
+      <div class="control-panel">
+        ${this.renderToneSelector()}
+        ${this.renderLengthSelector()}
+        ${this.renderIntentSelector()}
+        <button class="generate-btn" ${this.state.isLoading ? 'disabled' : ''}>
+          ${this.state.isLoading ? '⏳ Generating...' : 'Generate'}
+        </button>
+      </div>
+    `;
+  }
+
+  private renderResults(): string {
+    if (this.state.isLoading) {
+      return `
+        <div class="results-section">
+          <div class="loading-spinner">
+            <div class="spinner"></div>
+            <p>Generating suggestions...</p>
           </div>
+        </div>
+      `;
+    }
 
-          <div class="form-section">
-            <label class="form-label">Quick Override</label>
-            <div class="chip-row">
-              <button type="button" class="chip" data-override="crisp">Shorter</button>
-              <button type="button" class="chip" data-override="witty">Funnier</button>
-              <button type="button" class="chip" data-override="casual">More Casual</button>
-              <button type="button" class="chip" data-override="professional">More Professional</button>
-            </div>
-          </div>
+    if (this.state.error) {
+      return `
+        <div class="results-section error-state">
+          <div class="error-icon">⚠️</div>
+          <p class="error-message">${this.sanitizeHtml(this.state.error)}</p>
+          <button class="retry-btn">Try Again</button>
+        </div>
+      `;
+    }
 
-          <form id="genForm">
-            <!-- Tone Selection -->
-            <div class="form-section">
-              <label class="form-label">Tone</label>
-              <div class="checkbox-group">
-                ${TONE_OPTIONS.map(
-                  (tone) => `
-                  <div class="checkbox-item">
-                    <input type="checkbox" id="tone-${tone.value}" value="${tone.value}" name="tone"
-                      ${this.state.tone.includes(tone.value as Tone) ? 'checked' : ''} />
-                    <label for="tone-${tone.value}">${tone.label}</label>
-                  </div>
-                `
-                ).join('')}
-              </div>
-            </div>
+    if (this.state.results.length === 0) {
+      return `
+        <div class="results-section empty-state">
+          <div class="empty-icon">💭</div>
+          <p>Click "Generate" to create AI comment suggestions!</p>
+        </div>
+      `;
+    }
 
-            <!-- Length Selection -->
-            <div class="form-section">
-              <label class="form-label">Length</label>
-              <div class="radio-group">
-                ${LENGTH_OPTIONS.map(
-                  (length) => `
-                  <div class="radio-item">
-                    <input type="radio" id="length-${length.value}" value="${length.value}" name="length"
-                      ${this.state.length === length.value ? 'checked' : ''} />
-                    <label for="length-${length.value}">${length.label} - ${length.description}</label>
-                  </div>
-                `
-                ).join('')}
-              </div>
-            </div>
+    return `
+      <div class="results-section">
+        <div class="results-list">
+          ${this.state.results.map((text, idx) => this.renderResultItem(text, idx)).join('')}
+        </div>
+      </div>
+    `;
+  }
 
-            <!-- Intent Selection -->
-            <div class="form-section">
-              <label class="form-label">Intent</label>
-              <div class="checkbox-group">
-                ${INTENT_OPTIONS.map(
-                  (intent) => `
-                  <div class="checkbox-item">
-                    <input type="checkbox" id="intent-${intent.value}" value="${intent.value}" name="intent"
-                      ${this.state.intent.includes(intent.value as Intent) ? 'checked' : ''} />
-                    <label for="intent-${intent.value}">${intent.label}</label>
-                  </div>
-                `
-                ).join('')}
-              </div>
-            </div>
+  private renderCollapsedTab(): string {
+    return `
+      <button class="collapsed-tab" title="Open Quip comments panel">
+        <span class="tab-label">Quip Comments</span>
+      </button>
+    `;
+  }
 
-            <!-- Custom Modification -->
-            <div class="form-section">
-              <label class="form-label" for="customModify">Additional Instructions (Optional)</label>
-              <textarea id="customModify" placeholder="e.g., Make it shorter or add a question...">${this.escapeHtml(this.state.customModify)}</textarea>
-            </div>
-
-            <!-- Buttons -->
-            <div class="button-group">
-              <button type="submit" class="btn-generate" ${this.state.isLoading ? 'disabled' : ''}>
-                ${this.state.isLoading ? '<span class="loading-spinner"></span>Generating...' : 'Generate Comment'}
-              </button>
-            </div>
-          </form>
-
+  private renderExpandedPanel(): string {
+    return `
+      <div class="expanded-panel ${this.mode === 'inline' ? 'inline' : ''}">
+        <div class="panel-header">
+          <h3 class="panel-title">Quip</h3>
           ${
-            this.state.results.length > 0
+            this.mode === 'sidebar'
               ? `
-          <div class="results-container">
-            <label class="form-label">Generated Comments</label>
-            ${this.state.results
-              .map(
-                (result, index) => `
-              <div class="result-item">
-                <span>${this.escapeHtml(result)}</span>
-                <div class="result-actions">
-                  <button type="button" class="result-insert" data-index="${index}">Select & Insert</button>
-                  <button type="button" class="result-copy" data-index="${index}">Copy</button>
-                </div>
-              </div>
-            `
-              )
-              .join('')}
-          </div>
+          <button class="collapse-btn" title="Collapse sidebar">
+            ❮
+          </button>
           `
               : ''
           }
         </div>
+        ${this.renderControlPanel()}
+        ${this.renderResults()}
       </div>
     `;
-
-    return html;
   }
 
-  /**
-   * Attach event listeners to form elements
-   */
-  private attachEventListeners() {
-    // Close button
-    const closeBtn = this.shadow.getElementById('closeBtn');
-    if (closeBtn) {
-      closeBtn.addEventListener('click', () => {
-        this.host.remove();
-      });
+  private getStyles(): string {
+    return `
+      :host {
+        --sage-600: #6B5751;
+        --sage-700: #5a4844;
+        --emerald-500: #10B981;
+        --emerald-600: #059669;
+        --amber-400: #FBBF24;
+        --gray-100: #F3F4F6;
+        --gray-50: #F9FAFB;
+        --gray-200: #E5E7EB;
+        --gray-300: #D1D5DB;
+        --gray-600: #4B5563;
+        --gray-700: #374151;
+        --red-500: #EF4444;
+        --red-600: #DC2626;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      .collapsed-tab {
+        height: 42px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 0 14px;
+        background: linear-gradient(180deg, #f3faf7 0%, #e9f7f1 100%);
+        border: 1px solid #99e0c1;
+        border-radius: 999px;
+        color: #065f46;
+        font-weight: 700;
+        font-size: 13px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        box-shadow: 0 6px 18px rgba(16, 185, 129, 0.25);
+      }
+
+      .collapsed-tab:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 10px 24px rgba(16, 185, 129, 0.3);
+      }
+
+      .tab-icon {
+        font-size: 16px;
+        line-height: 1;
+      }
+
+      .tab-label {
+        line-height: 1;
+      }
+
+      .expanded-panel {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        background: white;
+        border-left: 1px solid var(--gray-200);
+        overflow: hidden;
+      }
+
+      .expanded-panel.inline {
+        height: auto;
+        max-height: min(72vh, 640px);
+        border: 1px solid var(--gray-200);
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+        overflow: hidden;
+      }
+
+      .expanded-panel.inline .control-panel {
+        max-height: none;
+      }
+
+      .expanded-panel.inline .results-section {
+        max-height: 280px;
+      }
+
+      .panel-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--gray-200);
+        background: var(--gray-100);
+        flex-shrink: 0;
+      }
+
+      .panel-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--sage-700);
+        margin: 0;
+      }
+
+      .collapse-btn {
+        background: none;
+        border: none;
+        font-size: 18px;
+        cursor: pointer;
+        padding: 4px;
+        border-radius: 4px;
+        transition: background 0.2s;
+      }
+
+      .collapse-btn:hover {
+        background: var(--gray-300);
+      }
+
+      .control-panel {
+        flex: 0 0 auto;
+        padding: 12px;
+        border-bottom: 1px solid var(--gray-200);
+        overflow-y: auto;
+        max-height: 45%;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .control-section {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .section-label {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--gray-700);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .tone-buttons {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+
+      .tone-btn,
+      .length-btn {
+        padding: 6px 10px;
+        border: 1px solid var(--gray-300);
+        background: white;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 500;
+        transition: all 0.2s;
+        min-width: 86px;
+      }
+
+      .tone-btn:hover,
+      .length-btn:hover {
+        border-color: var(--sage-600);
+      }
+
+      .tone-btn.active,
+      .length-btn.active {
+        background: var(--emerald-500);
+        color: white;
+        border-color: var(--emerald-600);
+      }
+
+      .length-buttons {
+        display: flex;
+        gap: 6px;
+      }
+
+      .intent-checkboxes {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+      }
+
+      .checkbox-label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        font-size: 12px;
+        padding: 4px;
+        border-radius: 3px;
+        transition: background 0.2s;
+      }
+
+      .checkbox-label:hover {
+        background: var(--gray-100);
+      }
+
+      .checkbox-label input {
+        cursor: pointer;
+        width: 14px;
+        height: 14px;
+        accent-color: var(--emerald-500);
+      }
+
+      .checkbox-label span {
+        color: var(--gray-700);
+        user-select: none;
+      }
+
+      .slider-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .slider-value {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--emerald-600);
+      }
+
+      .generate-btn {
+        width: 100%;
+        padding: 10px;
+        background: var(--emerald-500);
+        color: white;
+        border: none;
+        border-radius: 4px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+        margin-top: 4px;
+      }
+
+      .generate-btn:hover:not(:disabled) {
+        background: var(--emerald-600);
+        transform: translateY(-1px);
+        box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+      }
+
+      .generate-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      .results-section {
+        flex: 1;
+        overflow-y: auto;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .results-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .result-item {
+        padding: 10px;
+        background: var(--gray-50);
+        border: 1px solid var(--gray-200);
+        border-radius: 4px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .result-number {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--sage-600);
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+      }
+
+      .result-text {
+        font-size: 12px;
+        line-height: 1.4;
+        color: var(--gray-700);
+        word-wrap: break-word;
+        white-space: pre-wrap;
+      }
+
+      .result-buttons {
+        display: flex;
+        gap: 6px;
+      }
+
+      .copy-btn,
+      .use-btn {
+        flex: 1;
+        padding: 6px 8px;
+        border: 1px solid var(--gray-300);
+        background: white;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 500;
+        transition: all 0.2s;
+      }
+
+      .copy-btn {
+        color: var(--gray-600);
+      }
+
+      .copy-btn:hover {
+        background: var(--gray-100);
+        border-color: var(--gray-400);
+      }
+
+      .use-btn {
+        background: var(--emerald-500);
+        color: white;
+        border-color: var(--emerald-600);
+      }
+
+      .use-btn:hover {
+        background: var(--emerald-600);
+        border-color: var(--emerald-700);
+      }
+
+      .empty-state,
+      .error-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 20px;
+        text-align: center;
+      }
+
+      .empty-icon,
+      .error-icon {
+        font-size: 32px;
+      }
+
+      .empty-state p,
+      .error-message {
+        font-size: 12px;
+        color: var(--gray-600);
+      }
+
+      .retry-btn {
+        padding: 6px 12px;
+        background: var(--emerald-500);
+        color: white;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 500;
+        margin-top: 4px;
+      }
+
+      .retry-btn:hover {
+        background: var(--emerald-600);
+      }
+
+      .loading-spinner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 20px;
+      }
+
+      .spinner {
+        width: 24px;
+        height: 24px;
+        border: 3px solid var(--gray-200);
+        border-top-color: var(--emerald-500);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .loading-spinner p {
+        font-size: 12px;
+        color: var(--gray-600);
+      }
+    `;
+  }
+
+  private render(): void {
+    const shouldRenderExpanded = this.mode === 'inline' ? true : this.isExpanded;
+    const html = shouldRenderExpanded ? this.renderExpandedPanel() : this.renderCollapsedTab();
+    const styles = this.getStyles();
+
+    this.shadow.innerHTML = `
+      <style>${styles}</style>
+      ${html}
+    `;
+
+    this.attachEventListeners();
+  }
+
+  private attachEventListeners(): void {
+    // Collapsed tab click
+    const collapsedTab = this.shadow.querySelector('.collapsed-tab');
+    if (collapsedTab) {
+      collapsedTab.addEventListener('click', () => this.toggleExpanded());
     }
 
-    // Form submission
-    const form = this.shadow.getElementById('genForm') as HTMLFormElement;
-    if (form) {
-      form.addEventListener('submit', (e) => {
-        e.preventDefault();
-        this.handleFormSubmit();
+    // Collapse button
+    const collapseBtn = this.shadow.querySelector('.collapse-btn');
+    if (collapseBtn) {
+      collapseBtn.addEventListener('click', () => this.toggleExpanded());
+    }
+
+    // Tone buttons
+    this.shadow.querySelectorAll('.tone-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const tone = btn.getAttribute('data-tone') as Tone;
+        const currentTones = this.state.tone;
+        const newTones = currentTones.includes(tone)
+          ? currentTones.filter((t) => t !== tone)
+          : [...currentTones, tone];
+        this.setState({ tone: newTones.length > 0 ? newTones : ['professional'] });
+      });
+    });
+
+    // Length buttons
+    this.shadow.querySelectorAll('.length-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const length = btn.getAttribute('data-length') as Length;
+        this.setState({ length });
+      });
+    });
+
+    // Intent checkboxes
+    this.shadow.querySelectorAll('.intent-check').forEach((check) => {
+      check.addEventListener('change', () => {
+        const intent = (check as HTMLInputElement).getAttribute('data-intent') as Intent;
+        const newIntents = (check as HTMLInputElement).checked
+          ? [...this.state.intent, intent]
+          : this.state.intent.filter((i) => i !== intent);
+        this.setState({ intent: newIntents });
+      });
+    });
+
+    // Generate button
+    const generateBtn = this.shadow.querySelector('.generate-btn');
+    if (generateBtn && !this.state.isLoading) {
+      generateBtn.addEventListener('click', async () => {
+        if (this.onGenerate) {
+          await this.onGenerate();
+        }
       });
     }
 
     // Copy buttons
-    this.shadow.querySelectorAll('.result-copy').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        const index = (e.target as HTMLElement).getAttribute('data-index');
-        if (index !== null) {
-          const result = this.state.results[parseInt(index)];
-          if (result) {
-            this.onCopyResult(result);
-          }
+    this.shadow.querySelectorAll('.copy-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const index = parseInt(btn.getAttribute('data-index') || '0', 10);
+        const text = this.state.results[index];
+        if (text && this.onCopyResult) {
+          this.onCopyResult(text);
         }
       });
     });
 
-    this.shadow.querySelectorAll('.result-insert').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        const index = (e.target as HTMLElement).getAttribute('data-index');
-        if (index !== null) {
-          const parsedIndex = parseInt(index, 10);
-          const result = this.state.results[parsedIndex];
-          if (result) {
-            this.onInsertResult({ index: parsedIndex, text: result });
-          }
+    // Use buttons
+    this.shadow.querySelectorAll('.use-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const index = parseInt(btn.getAttribute('data-index') || '0', 10);
+        const text = this.state.results[index];
+        if (text && this.onInsertResult) {
+          this.onInsertResult({ index, text });
         }
       });
     });
 
-    this.shadow.querySelectorAll('.chip').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        const override = (e.currentTarget as HTMLElement).getAttribute('data-override');
-        if (!override) return;
-
-        if (override === 'crisp') {
-          this.setState({ length: 'crisp' });
-          return;
+    // Retry button
+    const retryBtn = this.shadow.querySelector('.retry-btn');
+    if (retryBtn) {
+      retryBtn.addEventListener('click', async () => {
+        if (this.onGenerate) {
+          await this.onGenerate();
         }
-
-        const currentTone = new Set(this.state.tone);
-        currentTone.add(override as Tone);
-        this.setState({ tone: Array.from(currentTone) });
       });
-    });
-  }
-
-  /**
-   * Handle form submission
-   */
-  private handleFormSubmit() {
-    // Get form values
-    const toneCheckboxes = this.shadow.querySelectorAll(
-      'input[name="tone"]:checked'
-    ) as NodeListOf<HTMLInputElement>;
-    const lengthRadio = this.shadow.querySelector(
-      'input[name="length"]:checked'
-    ) as HTMLInputElement;
-    const intentCheckboxes = this.shadow.querySelectorAll(
-      'input[name="intent"]:checked'
-    ) as NodeListOf<HTMLInputElement>;
-    const customModify = (this.shadow.getElementById('customModify') as HTMLTextAreaElement)
-      .value;
-
-    const tone = Array.from(toneCheckboxes).map((cb) => cb.value as Tone);
-    const length = (lengthRadio?.value || 'medium') as Length;
-    const intent = Array.from(intentCheckboxes).map((cb) => cb.value as Intent);
-
-    // Update state
-    this.setState({ tone, length, intent, customModify });
-
-    // Call callback
-    this.onGenerate({
-      tone,
-      length,
-      intent,
-      customInstruction: customModify,
-    });
-  }
-
-  /**
-   * Escape HTML to prevent XSS
-   */
-  private escapeHtml(text: string): string {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-  }
-
-  /**
-   * Close the panel
-   */
-  close() {
-    this.host.remove();
+    }
   }
 }
