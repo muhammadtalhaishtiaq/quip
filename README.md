@@ -72,6 +72,21 @@ See `.github/` folder for all project docs:
 - **[.github/UX_FLOW_DECISION.md](./.github/UX_FLOW_DECISION.md)** — UX specification (locked)
 - **[.github/SUMMARY.md](./.github/SUMMARY.md)** — Quick reference
 
+## Development Timeline
+
+This project was developed incrementally over 5 days:
+
+| Phase | Date | Focus | Details |
+|-------|------|-------|---------|
+| Initial Setup | Apr 7 | Full project upload | All code, config, docs |
+| Security Review | Apr 8 | Post-launch audit | Comprehensive security assessment |
+| Code Quality | Apr 9 | Bug fixes & cleanup | Remove unused try/catch wrapper |
+| Hardening | Apr 10 | Security fixes | Tighten manifest permissions |
+| Legal Prep | Apr 11 | License & attribution | Add MIT License |
+| Final Docs | Apr 12 | Developer guides | Copilot instructions, timeline |
+
+See [commit history](https://github.com/muhammadtalhaishtiaq/quip/commits/main) for step-by-step development.
+
 ## Tech Stack
 
 - **TypeScript** — Type-safe development
