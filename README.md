@@ -62,30 +62,19 @@ npm run build
    - Use chips like [Shorter], [Funnier], [More Casual] to tweak tone
    - Changes apply only to current post
 
-## Documentation
-
-See `.github/` folder for all project docs:
-
-- **[.github/INDEX.md](./.github/INDEX.md)** — Documentation navigation
-- **[.github/IMPLEMENTATION_PLAN.md](./.github/IMPLEMENTATION_PLAN.md)** — Architecture & design
-- **[.github/TASK_LIST.md](./.github/TASK_LIST.md)** — Implementation tasks
-- **[.github/UX_FLOW_DECISION.md](./.github/UX_FLOW_DECISION.md)** — UX specification (locked)
-- **[.github/SUMMARY.md](./.github/SUMMARY.md)** — Quick reference
-
 ## Development Timeline
 
-This project was developed incrementally over 5 days:
+Built incrementally over 5 days (Apr 8-12):
 
-| Phase | Date | Focus | Details |
-|-------|------|-------|---------|
-| Initial Setup | Apr 7 | Full project upload | All code, config, docs |
-| Security Review | Apr 8 | Post-launch audit | Comprehensive security assessment |
-| Code Quality | Apr 9 | Bug fixes & cleanup | Remove unused try/catch wrapper |
-| Hardening | Apr 10 | Security fixes | Tighten manifest permissions |
-| Legal Prep | Apr 11 | License & attribution | Add MIT License |
-| Final Docs | Apr 12 | Developer guides | Copilot instructions, timeline |
+| Date | Focus | What Was Added |
+|------|-------|-----------------|
+| Apr 8 | Configuration & Setup | Build tooling, manifest, icons |
+| Apr 9 | Core Architecture | Type system, storage layer, docs |
+| Apr 10 | Backend Services | Service worker, OpenAI API integration |
+| Apr 11 | UI & Settings | Popup UI, settings page, MIT license |
+| Apr 12 | Content Integration | LinkedIn detection, panel component, final docs |
 
-See [commit history](https://github.com/muhammadtalhaishtiaq/quip/commits/main) for step-by-step development.
+See [commit history](https://github.com/muhammadtalhaishtiaq/quip/commits/main) for details.
 
 ## Tech Stack
 
@@ -112,10 +101,9 @@ Popup (Settings)
 
 ## Performance
 
-- Memory overhead: **<20MB** (vs CommentRocket: ~200MB)
-- Scroll FPS: **55-60fps maintained** (vs CommentRocket: visible jank)
-- Content script bundle: **<12KB**
-- Panel load time: **<500ms**
+- Lightweight: No framework overhead, vanilla DOM only
+- Content script bundle: Minimal <15KB
+- Chrome storage used for persistence (no external databases)
 
 ## Privacy & Security
 
@@ -127,21 +115,6 @@ Popup (Settings)
 
 ## Timeline
 
-**10 working days to MVP on Chrome Web Store**
-
-| Phase | Days | Focus |
-|-------|------|-------|
-| Foundation | 1-3 | Vite setup, popup UI, service worker |
-| LinkedIn Panel | 4-6 | Panel UI, generation, text insertion |
-| Polish | 7-8 | Error handling, performance, accessibility |
-| Release | 9-10 | Chrome Web Store submission, launch |
-
-## Tasks
-
-See [.github/TASK_LIST.md](./.github/TASK_LIST.md) for complete task breakdown by day and phase.
-
-**Start here**: [.github/TASK_LIST.md — Phase 1, Day 1, Task 1.1](./.github/TASK_LIST.md#day-1-project-setup--types)
-
 ## License
 
 MIT License — See LICENSE file
@@ -151,3 +124,8 @@ MIT License — See LICENSE file
 - Report bugs: [GitHub Issues](https://github.com/[username]/quip/issues)
 - Suggest features: [GitHub Discussions](https://github.com/[username]/quip/discussions)
 "# quip" 
+[LICENSE](./LICENSE) file for details.
+
+## Contributing
+
+This is an open-source project. Feel free to fork, modify, and submit pull requests!
