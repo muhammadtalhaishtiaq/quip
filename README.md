@@ -62,20 +62,6 @@ npm run build
    - Use chips like [Shorter], [Funnier], [More Casual] to tweak tone
    - Changes apply only to current post
 
-## Development Timeline
-
-Built incrementally over 5 days (Apr 8-12):
-
-| Date | Focus | What Was Added |
-|------|-------|-----------------|
-| Apr 8 | Configuration & Setup | Build tooling, manifest, icons |
-| Apr 9 | Core Architecture | Type system, storage layer, docs |
-| Apr 10 | Backend Services | Service worker, OpenAI API integration |
-| Apr 11 | UI & Settings | Popup UI, settings page, MIT license |
-| Apr 12 | Content Integration | LinkedIn detection, panel component, final docs |
-
-See [commit history](https://github.com/muhammadtalhaishtiaq/quip/commits/main) for details.
-
 ## Tech Stack
 
 - **TypeScript** — Type-safe development
